@@ -59,10 +59,68 @@ static const KeyMapping key_mappings[] = {
 };
 
 /*******************************************************************************
+ * OSC Default Addresses
+ ******************************************************************************/
+static void build_osc_addresses(OscMapping *osc, const char *prefix) {
+    snprintf(osc->addr_left_stick, OSC_ADDR_MAX, "%s/stick/left", prefix);
+    snprintf(osc->addr_right_stick, OSC_ADDR_MAX, "%s/stick/right", prefix);
+    snprintf(osc->addr_left_trigger, OSC_ADDR_MAX, "%s/trigger/left", prefix);
+    snprintf(osc->addr_right_trigger, OSC_ADDR_MAX, "%s/trigger/right", prefix);
+    snprintf(osc->addr_a, OSC_ADDR_MAX, "%s/button/a", prefix);
+    snprintf(osc->addr_b, OSC_ADDR_MAX, "%s/button/b", prefix);
+    snprintf(osc->addr_x, OSC_ADDR_MAX, "%s/button/x", prefix);
+    snprintf(osc->addr_y, OSC_ADDR_MAX, "%s/button/y", prefix);
+    snprintf(osc->addr_lb, OSC_ADDR_MAX, "%s/button/lb", prefix);
+    snprintf(osc->addr_rb, OSC_ADDR_MAX, "%s/button/rb", prefix);
+    snprintf(osc->addr_ls, OSC_ADDR_MAX, "%s/button/ls", prefix);
+    snprintf(osc->addr_rs, OSC_ADDR_MAX, "%s/button/rs", prefix);
+    snprintf(osc->addr_view, OSC_ADDR_MAX, "%s/button/view", prefix);
+    snprintf(osc->addr_menu, OSC_ADDR_MAX, "%s/button/menu", prefix);
+    snprintf(osc->addr_dpad_up, OSC_ADDR_MAX, "%s/dpad/up", prefix);
+    snprintf(osc->addr_dpad_down, OSC_ADDR_MAX, "%s/dpad/down", prefix);
+    snprintf(osc->addr_dpad_left, OSC_ADDR_MAX, "%s/dpad/left", prefix);
+    snprintf(osc->addr_dpad_right, OSC_ADDR_MAX, "%s/dpad/right", prefix);
+}
+
+/*******************************************************************************
  * Default Configuration
  ******************************************************************************/
 void config_get_defaults(ControllerMapping *mapping) {
     memset(mapping, 0, sizeof(ControllerMapping));
+
+    // Output mode
+    mapping->output_mode = OUTPUT_MODE_KEYBOARD;
+
+    // MIDI mappings (used when output_mode is "midi")
+    strncpy(mapping->midi.device_name, "Xbox Controller", MIDI_DEVICE_NAME_MAX - 1);
+    mapping->midi.channel = 0;          // channel 1
+    mapping->midi.velocity = 127;
+    mapping->midi.note_a = 36;
+    mapping->midi.note_b = 37;
+    mapping->midi.note_x = 38;
+    mapping->midi.note_y = 39;
+    mapping->midi.note_lb = 40;
+    mapping->midi.note_rb = 41;
+    mapping->midi.note_view = 42;
+    mapping->midi.note_menu = 43;
+    mapping->midi.note_ls = 44;
+    mapping->midi.note_rs = 45;
+    mapping->midi.note_dpad_up = 46;
+    mapping->midi.note_dpad_down = 47;
+    mapping->midi.note_dpad_left = 48;
+    mapping->midi.note_dpad_right = 49;
+    mapping->midi.cc_left_x = 20;
+    mapping->midi.cc_left_y = 21;
+    mapping->midi.cc_right_x = 22;
+    mapping->midi.cc_right_y = 23;
+    mapping->midi.cc_left_trigger = 24;
+    mapping->midi.cc_right_trigger = 25;
+    mapping->midi.invert_y = false;
+
+    // OSC settings (used when output_mode is "osc" or "midi+osc")
+    strncpy(mapping->osc.host, "127.0.0.1", OSC_HOST_MAX - 1);
+    mapping->osc.port = 9000;
+    build_osc_addresses(&mapping->osc, "/xbox");
 
     // Button mappings
     mapping->buttons.key_a = 0x31;  // Space
@@ -237,14 +295,38 @@ static const char* find_key(const char *json, const char *key) {
     char search[128];
     snprintf(search, sizeof(search), "\"%s\"", key);
 
-    const char *p = strstr(json, search);
-    if (!p) return NULL;
+    // Skip matches that are values rather than keys (not followed by ':'),
+    // e.g. the string "midi" in "output_mode": "midi"
+    const char *p = json;
+    while ((p = strstr(p, search)) != NULL) {
+        const char *after = skip_whitespace(p + strlen(search));
+        if (*after == ':') {
+            return skip_whitespace(after + 1);
+        }
+        p += strlen(search);
+    }
+    return NULL;
+}
 
-    p += strlen(search);
-    p = skip_whitespace(p);
-    if (*p != ':') return NULL;
-    p++;
-    return skip_whitespace(p);
+static void parse_midi_num(const char *section, const char *key, uint8_t *out) {
+    const char *p = find_key(section, key);
+    if (p) {
+        double num_val;
+        parse_number(p, &num_val);
+        if (num_val >= 0 && num_val <= 127) *out = (uint8_t)num_val;
+    }
+}
+
+static void parse_osc_addr(const char *section, const char *key, char *out) {
+    const char *p = find_key(section, key);
+    if (p) {
+        char val[OSC_ADDR_MAX] = {0};
+        parse_string(p, val, sizeof(val));
+        if (val[0] == '/') {
+            strncpy(out, val, OSC_ADDR_MAX - 1);
+            out[OSC_ADDR_MAX - 1] = '\0';
+        }
+    }
 }
 
 /*******************************************************************************
@@ -448,6 +530,113 @@ int config_load(const char *path, ControllerMapping *mapping) {
         }
     }
 
+    // Parse output_mode
+    if ((p = find_key(json, "output_mode"))) {
+        parse_string(p, str_val, sizeof(str_val));
+        if (strcmp(str_val, "midi") == 0) mapping->output_mode = OUTPUT_MODE_MIDI;
+        else if (strcmp(str_val, "osc") == 0) mapping->output_mode = OUTPUT_MODE_OSC;
+        else if (strcmp(str_val, "midi+osc") == 0 || strcmp(str_val, "osc+midi") == 0 ||
+                 strcmp(str_val, "midi_osc") == 0) mapping->output_mode = OUTPUT_MODE_MIDI_OSC;
+        else if (strcmp(str_val, "keyboard") == 0) mapping->output_mode = OUTPUT_MODE_KEYBOARD;
+    }
+
+    // Parse midi
+    const char *midi = find_key(json, "midi");
+    if (midi) {
+        if ((p = find_key(midi, "device_name"))) {
+            parse_string(p, str_val, sizeof(str_val));
+            if (str_val[0] != '\0') {
+                strncpy(mapping->midi.device_name, str_val, MIDI_DEVICE_NAME_MAX - 1);
+                mapping->midi.device_name[MIDI_DEVICE_NAME_MAX - 1] = '\0';
+            }
+        }
+        if ((p = find_key(midi, "channel"))) {
+            parse_number(p, &num_val);
+            if (num_val >= 1 && num_val <= 16) mapping->midi.channel = (uint8_t)(num_val - 1);
+        }
+        if ((p = find_key(midi, "velocity"))) {
+            parse_number(p, &num_val);
+            if (num_val >= 1 && num_val <= 127) mapping->midi.velocity = (uint8_t)num_val;
+        }
+        if ((p = find_key(midi, "invert_y"))) {
+            if (parse_bool(p, &bool_val)) mapping->midi.invert_y = bool_val;
+        }
+
+        const char *notes = find_key(midi, "notes");
+        if (notes) {
+            parse_midi_num(notes, "a", &mapping->midi.note_a);
+            parse_midi_num(notes, "b", &mapping->midi.note_b);
+            parse_midi_num(notes, "x", &mapping->midi.note_x);
+            parse_midi_num(notes, "y", &mapping->midi.note_y);
+            parse_midi_num(notes, "lb", &mapping->midi.note_lb);
+            parse_midi_num(notes, "rb", &mapping->midi.note_rb);
+            parse_midi_num(notes, "ls", &mapping->midi.note_ls);
+            parse_midi_num(notes, "rs", &mapping->midi.note_rs);
+            parse_midi_num(notes, "view", &mapping->midi.note_view);
+            parse_midi_num(notes, "menu", &mapping->midi.note_menu);
+            parse_midi_num(notes, "dpad_up", &mapping->midi.note_dpad_up);
+            parse_midi_num(notes, "dpad_down", &mapping->midi.note_dpad_down);
+            parse_midi_num(notes, "dpad_left", &mapping->midi.note_dpad_left);
+            parse_midi_num(notes, "dpad_right", &mapping->midi.note_dpad_right);
+        }
+
+        const char *ccs = find_key(midi, "ccs");
+        if (ccs) {
+            parse_midi_num(ccs, "left_stick_x", &mapping->midi.cc_left_x);
+            parse_midi_num(ccs, "left_stick_y", &mapping->midi.cc_left_y);
+            parse_midi_num(ccs, "right_stick_x", &mapping->midi.cc_right_x);
+            parse_midi_num(ccs, "right_stick_y", &mapping->midi.cc_right_y);
+            parse_midi_num(ccs, "left_trigger", &mapping->midi.cc_left_trigger);
+            parse_midi_num(ccs, "right_trigger", &mapping->midi.cc_right_trigger);
+        }
+    }
+
+    // Parse osc
+    const char *osc = find_key(json, "osc");
+    if (osc) {
+        if ((p = find_key(osc, "host"))) {
+            parse_string(p, str_val, sizeof(str_val));
+            if (str_val[0] != '\0') {
+                strncpy(mapping->osc.host, str_val, OSC_HOST_MAX - 1);
+                mapping->osc.host[OSC_HOST_MAX - 1] = '\0';
+            }
+        }
+        if ((p = find_key(osc, "port"))) {
+            parse_number(p, &num_val);
+            if (num_val >= 1 && num_val <= 65535) mapping->osc.port = (uint16_t)num_val;
+        }
+        // Prefix rebuilds every default address; explicit addresses override after
+        if ((p = find_key(osc, "prefix"))) {
+            char prefix[OSC_PREFIX_MAX] = {0};
+            parse_string(p, prefix, sizeof(prefix));
+            if (prefix[0] == '/') {
+                build_osc_addresses(&mapping->osc, prefix);
+            }
+        }
+
+        const char *addresses = find_key(osc, "addresses");
+        if (addresses) {
+            parse_osc_addr(addresses, "left_stick", mapping->osc.addr_left_stick);
+            parse_osc_addr(addresses, "right_stick", mapping->osc.addr_right_stick);
+            parse_osc_addr(addresses, "left_trigger", mapping->osc.addr_left_trigger);
+            parse_osc_addr(addresses, "right_trigger", mapping->osc.addr_right_trigger);
+            parse_osc_addr(addresses, "a", mapping->osc.addr_a);
+            parse_osc_addr(addresses, "b", mapping->osc.addr_b);
+            parse_osc_addr(addresses, "x", mapping->osc.addr_x);
+            parse_osc_addr(addresses, "y", mapping->osc.addr_y);
+            parse_osc_addr(addresses, "lb", mapping->osc.addr_lb);
+            parse_osc_addr(addresses, "rb", mapping->osc.addr_rb);
+            parse_osc_addr(addresses, "ls", mapping->osc.addr_ls);
+            parse_osc_addr(addresses, "rs", mapping->osc.addr_rs);
+            parse_osc_addr(addresses, "view", mapping->osc.addr_view);
+            parse_osc_addr(addresses, "menu", mapping->osc.addr_menu);
+            parse_osc_addr(addresses, "dpad_up", mapping->osc.addr_dpad_up);
+            parse_osc_addr(addresses, "dpad_down", mapping->osc.addr_dpad_down);
+            parse_osc_addr(addresses, "dpad_left", mapping->osc.addr_dpad_left);
+            parse_osc_addr(addresses, "dpad_right", mapping->osc.addr_dpad_right);
+        }
+    }
+
     free(json);
     return 0;
 }
@@ -519,7 +708,29 @@ void config_print(const ControllerMapping *mapping) {
     const char *stick_mode_names[] = {"WASD", "Arrows", "Mouse", "Disabled"};
     const char *trigger_mode_names[] = {"Mouse", "Key", "Disabled"};
 
+    const char *output_mode_names[] = {"Keyboard/Mouse", "MIDI", "OSC", "MIDI+OSC"};
+
     printf("Configuration:\n");
+    printf("  Output mode: %s\n", output_mode_names[mapping->output_mode]);
+    if (OUTPUT_HAS_MIDI(mapping->output_mode)) {
+        printf("  MIDI device: %s (channel %d)\n", mapping->midi.device_name,
+               mapping->midi.channel + 1);
+        printf("  MIDI CCs: LX=%d LY=%d RX=%d RY=%d LT=%d RT=%d\n",
+               mapping->midi.cc_left_x, mapping->midi.cc_left_y,
+               mapping->midi.cc_right_x, mapping->midi.cc_right_y,
+               mapping->midi.cc_left_trigger, mapping->midi.cc_right_trigger);
+        printf("  MIDI notes: A=%d B=%d X=%d Y=%d (buttons ascending from A)\n",
+               mapping->midi.note_a, mapping->midi.note_b,
+               mapping->midi.note_x, mapping->midi.note_y);
+    }
+    if (OUTPUT_HAS_OSC(mapping->output_mode)) {
+        printf("  OSC target: %s:%u\n", mapping->osc.host, mapping->osc.port);
+        printf("  OSC sticks: %s | %s (floats x y, -1..1)\n",
+               mapping->osc.addr_left_stick, mapping->osc.addr_right_stick);
+        printf("  OSC triggers: %s | %s (float 0..1)\n",
+               mapping->osc.addr_left_trigger, mapping->osc.addr_right_trigger);
+        printf("  OSC buttons: %s ... (int 0/1)\n", mapping->osc.addr_a);
+    }
     printf("  Left stick: %s\n", stick_mode_names[mapping->sticks.left_stick_mode]);
     printf("  Right stick: %s\n", stick_mode_names[mapping->sticks.right_stick_mode]);
     printf("  Left trigger: %s\n", trigger_mode_names[mapping->triggers.left_trigger_mode]);

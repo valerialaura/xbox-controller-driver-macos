@@ -6,7 +6,7 @@ OBJCC = clang
 CFLAGS = -Wall -Wextra -O2 -I./include
 OBJCFLAGS = -Wall -Wextra -O2 -I./include -fobjc-arc
 LIBUSB_FLAGS = $(shell pkg-config --cflags --libs libusb-1.0)
-FRAMEWORK_FLAGS = -framework CoreGraphics -framework ApplicationServices
+FRAMEWORK_FLAGS = -framework CoreGraphics -framework ApplicationServices -framework CoreMIDI -framework CoreFoundation
 COCOA_FLAGS = -framework Cocoa
 LDFLAGS = -lm -lpthread
 
@@ -15,6 +15,10 @@ SRC_LOG = src/log.c
 SRC_CONFIG = src/config/config.c
 SRC_EVENT = src/event/event.c
 SRC_INPUT = src/input/input.c
+SRC_INPUT_MIDI = src/input/input_midi.c
+SRC_MIDI = src/midi/midi.c
+SRC_INPUT_OSC = src/input/input_osc.c
+SRC_OSC = src/osc/osc.c
 SRC_USB = src/usb/usb.c
 SRC_DRIVER = src/core/driver.c
 SRC_MAIN_CLI = src/main.c
@@ -26,6 +30,10 @@ OBJ_LOG = build/log.o
 OBJ_CONFIG = build/config.o
 OBJ_EVENT = build/event.o
 OBJ_INPUT = build/input.o
+OBJ_INPUT_MIDI = build/input_midi.o
+OBJ_MIDI = build/midi.o
+OBJ_INPUT_OSC = build/input_osc.o
+OBJ_OSC = build/osc.o
 OBJ_USB = build/usb.o
 OBJ_DRIVER = build/driver.o
 OBJ_MAIN_CLI = build/main_cli.o
@@ -33,10 +41,10 @@ OBJ_MAIN_GUI = build/main_gui.o
 OBJ_MENUBAR = build/menubar.o
 
 # All objects for CLI driver
-OBJS_CLI = $(OBJ_LOG) $(OBJ_CONFIG) $(OBJ_EVENT) $(OBJ_INPUT) $(OBJ_USB) $(OBJ_DRIVER) $(OBJ_MAIN_CLI)
+OBJS_CLI = $(OBJ_LOG) $(OBJ_CONFIG) $(OBJ_EVENT) $(OBJ_INPUT) $(OBJ_INPUT_MIDI) $(OBJ_MIDI) $(OBJ_INPUT_OSC) $(OBJ_OSC) $(OBJ_USB) $(OBJ_DRIVER) $(OBJ_MAIN_CLI)
 
 # All objects for GUI driver (default)
-OBJS_GUI = $(OBJ_LOG) $(OBJ_CONFIG) $(OBJ_EVENT) $(OBJ_INPUT) $(OBJ_USB) $(OBJ_DRIVER) $(OBJ_MAIN_GUI) $(OBJ_MENUBAR)
+OBJS_GUI = $(OBJ_LOG) $(OBJ_CONFIG) $(OBJ_EVENT) $(OBJ_INPUT) $(OBJ_INPUT_MIDI) $(OBJ_MIDI) $(OBJ_INPUT_OSC) $(OBJ_OSC) $(OBJ_USB) $(OBJ_DRIVER) $(OBJ_MAIN_GUI) $(OBJ_MENUBAR)
 
 # Targets - GUI is the default
 all: simulator simulator-cli
@@ -56,6 +64,18 @@ $(OBJ_EVENT): $(SRC_EVENT) | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJ_INPUT): $(SRC_INPUT) | build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_INPUT_MIDI): $(SRC_INPUT_MIDI) | build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_MIDI): $(SRC_MIDI) | build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_INPUT_OSC): $(SRC_INPUT_OSC) | build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_OSC): $(SRC_OSC) | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJ_USB): $(SRC_USB) | build

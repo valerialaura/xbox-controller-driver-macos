@@ -69,12 +69,18 @@ static void start_driver_thread(void) {
 static void *status_thread_func(void *arg) {
     (void)arg;
 
+    static const char *mode_suffix[] = {"", " (MIDI)", " (OSC)", " (MIDI+OSC)"};
+
     while (g_driver_running) {
+        char status[64];
+        const char *suffix = mode_suffix[g_ctx.config.output_mode];
         if (g_ctx.usb.connected) {
-            menubar_set_status("Connected");
+            snprintf(status, sizeof(status), "Connected%s", suffix);
+            menubar_set_status(status);
             menubar_set_connected(true);
         } else {
-            menubar_set_status("Disconnected");
+            snprintf(status, sizeof(status), "Disconnected%s", suffix);
+            menubar_set_status(status);
             menubar_set_connected(false);
         }
 

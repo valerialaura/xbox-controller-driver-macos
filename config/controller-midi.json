@@ -1,0 +1,50 @@
+{
+  "output_mode": "midi",
+
+  "midi": {
+    "device_name": "Xbox Controller",
+    "channel": 1,
+    "velocity": 127,
+    "invert_y": false,
+    "notes": {
+      "a": 36,
+      "b": 37,
+      "x": 38,
+      "y": 39,
+      "lb": 40,
+      "rb": 41,
+      "view": 42,
+      "menu": 43,
+      "ls": 44,
+      "rs": 45,
+      "dpad_up": 46,
+      "dpad_down": 47,
+      "dpad_left": 48,
+      "dpad_right": 49
+    },
+    "ccs": {
+      "left_stick_x": 20,
+      "left_stick_y": 21,
+      "right_stick_x": 22,
+      "right_stick_y": 23,
+      "left_trigger": 24,
+      "right_trigger": 25
+    }
+  },
+
+  "left_stick": {
+    "deadzone": 8000
+  },
+
+  "features": {
+    "rumble": {
+      "enabled": true,
+      "button_feedback": true
+    }
+  },
+
+  "advanced": {
+    "log_level": "info",
+    "console_output": true
+  }
+}

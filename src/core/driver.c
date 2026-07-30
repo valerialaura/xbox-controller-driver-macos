@@ -5,6 +5,8 @@
 #include "../../include/driver.h"
 #include "../../include/config.h"
 #include "../../include/input.h"
+#include "../../include/midi.h"
+#include "../../include/osc.h"
 #include "../../include/log.h"
 #include "../../include/thread.h"
 #include <stdio.h>
@@ -87,9 +89,31 @@ int driver_init(DriverContext *ctx, const char *config_path) {
     config_print(&ctx->config);
     printf("\n");
 
-    printf("IMPORTANT: You may need to grant Accessibility permissions:\n");
-    printf("   System Settings -> Privacy & Security -> Accessibility\n");
-    printf("   Add Terminal (or your terminal app) to the list\n\n");
+    if (OUTPUT_HAS_MIDI(ctx->config.output_mode)) {
+        if (midi_init(ctx->config.midi.device_name) != 0) {
+            fprintf(stderr, "Failed to create MIDI virtual source\n");
+            return -1;
+        }
+        printf("MIDI mode: virtual source \"%s\" is now visible to DAWs\n",
+               ctx->config.midi.device_name);
+        printf("   In Ableton Live: Settings -> Link/MIDI -> enable Track + Remote\n");
+        printf("   for the \"%s\" input\n\n", ctx->config.midi.device_name);
+    }
+    if (OUTPUT_HAS_OSC(ctx->config.output_mode)) {
+        if (osc_init(ctx->config.osc.host, ctx->config.osc.port) != 0) {
+            fprintf(stderr, "Failed to set up OSC output\n");
+            return -1;
+        }
+        printf("OSC mode: sending to %s:%u\n",
+               ctx->config.osc.host, ctx->config.osc.port);
+        printf("   In Max: [udpreceive %u] -> [route %s ...]\n\n",
+               ctx->config.osc.port, ctx->config.osc.addr_left_stick);
+    }
+    if (ctx->config.output_mode == OUTPUT_MODE_KEYBOARD) {
+        printf("IMPORTANT: You may need to grant Accessibility permissions:\n");
+        printf("   System Settings -> Privacy & Security -> Accessibility\n");
+        printf("   Add Terminal (or your terminal app) to the list\n\n");
+    }
 
     // Initialize USB
     if (usb_init(&ctx->usb) != 0) {
@@ -102,8 +126,18 @@ int driver_init(DriverContext *ctx, const char *config_path) {
 void driver_cleanup(DriverContext *ctx) {
     LOG_INFO("Cleaning up...");
 
-    // Release all held keys/buttons
-    input_state_release_all(&ctx->input_state);
+    // Release all held keys/buttons/notes
+    if (ctx->config.output_mode == OUTPUT_MODE_KEYBOARD) {
+        input_state_release_all(&ctx->input_state);
+    }
+    if (OUTPUT_HAS_MIDI(ctx->config.output_mode)) {
+        midi_release_all(&ctx->input_state, &ctx->config);
+    }
+    if (OUTPUT_HAS_OSC(ctx->config.output_mode)) {
+        osc_release_all(&ctx->input_state, &ctx->config);
+    }
+    midi_cleanup();
+    osc_cleanup();
 
     // Close USB
     usb_cleanup(&ctx->usb);
@@ -155,13 +189,37 @@ void driver_input_loop(DriverContext *ctx) {
                 rwlock_read_lock(&g_config_lock);
 
                 // Process input
-                process_buttons(input->buttons, &ctx->input_state, &ctx->config,
-                               rumble_callback, ctx);
-                process_triggers(input->left_trigger, input->right_trigger,
-                                &ctx->input_state, &ctx->config);
-                process_sticks(input->left_stick_x, input->left_stick_y,
-                              input->right_stick_x, input->right_stick_y,
-                              &ctx->input_state, &ctx->config, ctx->config.streaming_mode);
+                if (ctx->config.output_mode != OUTPUT_MODE_KEYBOARD) {
+                    bool has_midi = OUTPUT_HAS_MIDI(ctx->config.output_mode);
+                    if (has_midi) {
+                        process_buttons_midi(input->buttons, &ctx->input_state, &ctx->config,
+                                             rumble_callback, ctx);
+                        process_triggers_midi(input->left_trigger, input->right_trigger,
+                                              &ctx->input_state, &ctx->config);
+                        process_sticks_midi(input->left_stick_x, input->left_stick_y,
+                                            input->right_stick_x, input->right_stick_y,
+                                            &ctx->input_state, &ctx->config);
+                    }
+                    if (OUTPUT_HAS_OSC(ctx->config.output_mode)) {
+                        // MIDI already triggered rumble; don't double-fire
+                        process_buttons_osc(input->buttons, &ctx->input_state, &ctx->config,
+                                            has_midi ? NULL : rumble_callback,
+                                            has_midi ? NULL : (void *)ctx);
+                        process_triggers_osc(input->left_trigger, input->right_trigger,
+                                             &ctx->input_state, &ctx->config);
+                        process_sticks_osc(input->left_stick_x, input->left_stick_y,
+                                           input->right_stick_x, input->right_stick_y,
+                                           &ctx->input_state, &ctx->config);
+                    }
+                } else {
+                    process_buttons(input->buttons, &ctx->input_state, &ctx->config,
+                                   rumble_callback, ctx);
+                    process_triggers(input->left_trigger, input->right_trigger,
+                                    &ctx->input_state, &ctx->config);
+                    process_sticks(input->left_stick_x, input->left_stick_y,
+                                  input->right_stick_x, input->right_stick_y,
+                                  &ctx->input_state, &ctx->config, ctx->config.streaming_mode);
+                }
 
                 rwlock_read_unlock(&g_config_lock);
                 mutex_unlock(&g_state_mutex);
@@ -190,12 +248,15 @@ void driver_input_loop(DriverContext *ctx) {
             }
 
         } else if (result == LIBUSB_ERROR_TIMEOUT) {
-            // Timeout: Generate continuous movement from held stick positions
-            mutex_lock(&g_state_mutex);
-            rwlock_read_lock(&g_config_lock);
-            generate_continuous_movement(&ctx->input_state, &ctx->config, ctx->config.streaming_mode);
-            rwlock_read_unlock(&g_config_lock);
-            mutex_unlock(&g_state_mutex);
+            // Timeout: Generate continuous movement from held stick positions.
+            // Not needed in MIDI/OSC modes - a held stick keeps its last value.
+            if (ctx->config.output_mode == OUTPUT_MODE_KEYBOARD) {
+                mutex_lock(&g_state_mutex);
+                rwlock_read_lock(&g_config_lock);
+                generate_continuous_movement(&ctx->input_state, &ctx->config, ctx->config.streaming_mode);
+                rwlock_read_unlock(&g_config_lock);
+                mutex_unlock(&g_state_mutex);
+            }
 
         } else if (result == LIBUSB_ERROR_NO_DEVICE) {
             LOG_WARN("Controller disconnected!");
@@ -225,11 +286,39 @@ void driver_input_loop(DriverContext *ctx) {
             hot_reload_counter = 0;
 
             rwlock_write_lock(&g_config_lock);
+            OutputMode prev_mode = ctx->config.output_mode;
             int reload_result = config_reload_if_changed(ctx->config_path, &ctx->config,
                                                           &ctx->config_last_modified);
             if (reload_result == 1) {
                 ctx->verbose = ctx->config.console_output_enabled;
                 log_set_level(ctx->config.log_level);
+
+                // Release everything held by outputs the new mode dropped
+                OutputMode new_mode = ctx->config.output_mode;
+                if (new_mode != prev_mode) {
+                    mutex_lock(&g_state_mutex);
+                    if (prev_mode == OUTPUT_MODE_KEYBOARD) {
+                        input_state_release_all(&ctx->input_state);
+                    }
+                    if (OUTPUT_HAS_MIDI(prev_mode) && !OUTPUT_HAS_MIDI(new_mode)) {
+                        midi_release_all(&ctx->input_state, &ctx->config);
+                    }
+                    if (OUTPUT_HAS_OSC(prev_mode) && !OUTPUT_HAS_OSC(new_mode)) {
+                        osc_release_all(&ctx->input_state, &ctx->config);
+                    }
+                    mutex_unlock(&g_state_mutex);
+                }
+                if (OUTPUT_HAS_MIDI(new_mode) && !midi_is_ready()) {
+                    if (midi_init(ctx->config.midi.device_name) != 0) {
+                        LOG_ERROR("Failed to create MIDI virtual source");
+                    }
+                }
+                if (OUTPUT_HAS_OSC(new_mode)) {
+                    // Re-resolve in case host/port changed; also first-time init
+                    if (osc_init(ctx->config.osc.host, ctx->config.osc.port) != 0) {
+                        LOG_ERROR("Failed to set up OSC output");
+                    }
+                }
             }
             rwlock_write_unlock(&g_config_lock);
         }

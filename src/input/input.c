@@ -4,6 +4,7 @@
 
 #include "../../include/input.h"
 #include "../../include/event.h"
+#include "../../include/midi.h"
 #include "../../include/log.h"
 #include <math.h>
 #include <string.h>
@@ -77,6 +78,7 @@ static const uint16_t button_masks[XBOX_BTN_COUNT] = {
  ******************************************************************************/
 void input_state_init(InputState *state) {
     memset(state, 0, sizeof(InputState));
+    midi_state_init(&state->midi);
 }
 
 void input_state_release_all(InputState *state) {

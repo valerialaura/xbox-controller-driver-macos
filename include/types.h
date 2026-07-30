@@ -28,6 +28,19 @@ typedef enum {
 } TriggerMode;
 
 /*******************************************************************************
+ * Output Mode Enum
+ ******************************************************************************/
+typedef enum {
+    OUTPUT_MODE_KEYBOARD = 0,
+    OUTPUT_MODE_MIDI,
+    OUTPUT_MODE_OSC,
+    OUTPUT_MODE_MIDI_OSC
+} OutputMode;
+
+#define OUTPUT_HAS_MIDI(m) ((m) == OUTPUT_MODE_MIDI || (m) == OUTPUT_MODE_MIDI_OSC)
+#define OUTPUT_HAS_OSC(m)  ((m) == OUTPUT_MODE_OSC || (m) == OUTPUT_MODE_MIDI_OSC)
+
+/*******************************************************************************
  * Log Level Enum
  ******************************************************************************/
 typedef enum {
@@ -129,6 +142,78 @@ typedef struct {
 } TriggerMapping;
 
 /*******************************************************************************
+ * MIDI Mapping Structure
+ ******************************************************************************/
+#define MIDI_DEVICE_NAME_MAX   64
+
+typedef struct {
+    char device_name[MIDI_DEVICE_NAME_MAX];
+    uint8_t channel;            // 0-15 (JSON uses 1-16)
+    uint8_t velocity;
+
+    // Button -> note number
+    uint8_t note_a, note_b, note_x, note_y;
+    uint8_t note_lb, note_rb;
+    uint8_t note_ls, note_rs;
+    uint8_t note_view, note_menu;
+    uint8_t note_dpad_up, note_dpad_down, note_dpad_left, note_dpad_right;
+
+    // Analog -> CC number
+    uint8_t cc_left_x, cc_left_y;
+    uint8_t cc_right_x, cc_right_y;
+    uint8_t cc_left_trigger, cc_right_trigger;
+
+    bool invert_y;
+} MidiMapping;
+
+/*******************************************************************************
+ * MIDI Output State (dedupe + note tracking)
+ ******************************************************************************/
+typedef struct {
+    uint8_t last_cc[128];       // last sent value per CC number, 0xFF = never sent
+    bool notes_on[128];
+} MidiState;
+
+/*******************************************************************************
+ * OSC Mapping Structure
+ ******************************************************************************/
+#define OSC_HOST_MAX           64
+#define OSC_ADDR_MAX           64
+#define OSC_PREFIX_MAX         40
+
+typedef struct {
+    char host[OSC_HOST_MAX];
+    uint16_t port;
+
+    // Sticks send two floats (x, y in -1..1); triggers send one float (0..1)
+    char addr_left_stick[OSC_ADDR_MAX];
+    char addr_right_stick[OSC_ADDR_MAX];
+    char addr_left_trigger[OSC_ADDR_MAX];
+    char addr_right_trigger[OSC_ADDR_MAX];
+
+    // Buttons send one int (0/1)
+    char addr_a[OSC_ADDR_MAX], addr_b[OSC_ADDR_MAX];
+    char addr_x[OSC_ADDR_MAX], addr_y[OSC_ADDR_MAX];
+    char addr_lb[OSC_ADDR_MAX], addr_rb[OSC_ADDR_MAX];
+    char addr_ls[OSC_ADDR_MAX], addr_rs[OSC_ADDR_MAX];
+    char addr_view[OSC_ADDR_MAX], addr_menu[OSC_ADDR_MAX];
+    char addr_dpad_up[OSC_ADDR_MAX], addr_dpad_down[OSC_ADDR_MAX];
+    char addr_dpad_left[OSC_ADDR_MAX], addr_dpad_right[OSC_ADDR_MAX];
+} OscMapping;
+
+/*******************************************************************************
+ * OSC Output State (dedupe, independent from MIDI state)
+ ******************************************************************************/
+typedef struct {
+    bool buttons_primed;
+    bool triggers_primed;
+    bool sticks_primed;
+    uint16_t prev_buttons;
+    uint8_t last_lt, last_rt;
+    int16_t last_lx, last_ly, last_rx, last_ry;
+} OscState;
+
+/*******************************************************************************
  * Rumble Settings Structure
  ******************************************************************************/
 typedef struct {
@@ -166,9 +251,12 @@ typedef struct {
  * Controller Mapping Structure (Main Config)
  ******************************************************************************/
 typedef struct {
+    OutputMode output_mode;
     ButtonMapping buttons;
     StickMapping sticks;
     TriggerMapping triggers;
+    MidiMapping midi;
+    OscMapping osc;
     FeatureSettings features;
     bool console_output_enabled;
     bool streaming_mode;
@@ -214,6 +302,12 @@ typedef struct {
     // Turbo state
     bool turbo_enabled[XBOX_BTN_COUNT];
     uint8_t turbo_counter[XBOX_BTN_COUNT];
+
+    // MIDI output state
+    MidiState midi;
+
+    // OSC output state
+    OscState osc;
 } InputState;
 
 /*******************************************************************************

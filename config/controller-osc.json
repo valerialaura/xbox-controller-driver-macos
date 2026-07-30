@@ -1,0 +1,45 @@
+{
+  "output_mode": "osc",
+
+  "osc": {
+    "host": "127.0.0.1",
+    "port": 9000,
+    "prefix": "/xbox",
+    "addresses": {
+      "left_stick": "/xbox/stick/left",
+      "right_stick": "/xbox/stick/right",
+      "left_trigger": "/xbox/trigger/left",
+      "right_trigger": "/xbox/trigger/right",
+      "a": "/xbox/button/a",
+      "b": "/xbox/button/b",
+      "x": "/xbox/button/x",
+      "y": "/xbox/button/y",
+      "lb": "/xbox/button/lb",
+      "rb": "/xbox/button/rb",
+      "ls": "/xbox/button/ls",
+      "rs": "/xbox/button/rs",
+      "view": "/xbox/button/view",
+      "menu": "/xbox/button/menu",
+      "dpad_up": "/xbox/dpad/up",
+      "dpad_down": "/xbox/dpad/down",
+      "dpad_left": "/xbox/dpad/left",
+      "dpad_right": "/xbox/dpad/right"
+    }
+  },
+
+  "left_stick": {
+    "deadzone": 8000
+  },
+
+  "features": {
+    "rumble": {
+      "enabled": true,
+      "button_feedback": true
+    }
+  },
+
+  "advanced": {
+    "log_level": "info",
+    "console_output": true
+  }
+}
