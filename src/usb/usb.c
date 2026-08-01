@@ -40,8 +40,8 @@ int usb_open_device(UsbContext *ctx) {
 
     ctx->handle = libusb_open_device_with_vid_pid(ctx->ctx, XBOX_VENDOR_ID, XBOX_PRODUCT_ID);
     if (!ctx->handle) {
-        LOG_ERROR("Controller not found. Make sure it's plugged in and you're running with sudo");
-        return -1;
+        LOG_ERROR("Controller not found. Make sure it's plugged in via USB");
+        return USB_OPEN_ERR_NOT_FOUND;
     }
     LOG_INFO("Found controller");
 
@@ -61,7 +61,11 @@ int usb_open_device(UsbContext *ctx) {
         LOG_ERROR("Failed to claim interface: %s", libusb_error_name(result));
         libusb_close(ctx->handle);
         ctx->handle = NULL;
-        return -1;
+        if (result == LIBUSB_ERROR_ACCESS) {
+            LOG_ERROR("The interface is held by macOS - run with sudo / administrator privileges");
+            return USB_OPEN_ERR_ACCESS;
+        }
+        return USB_OPEN_ERR_OTHER;
     }
     LOG_INFO("Claimed interface");
 
@@ -73,7 +77,7 @@ int usb_open_device(UsbContext *ctx) {
         libusb_release_interface(ctx->handle, 0);
         libusb_close(ctx->handle);
         ctx->handle = NULL;
-        return -1;
+        return USB_OPEN_ERR_OTHER;
     }
 
     ctx->in_endpoint = 0;
@@ -100,7 +104,7 @@ int usb_open_device(UsbContext *ctx) {
         libusb_release_interface(ctx->handle, 0);
         libusb_close(ctx->handle);
         ctx->handle = NULL;
-        return -1;
+        return USB_OPEN_ERR_OTHER;
     }
 
     LOG_DEBUG("Found endpoints: IN=0x%02x, OUT=0x%02x", ctx->in_endpoint, ctx->out_endpoint);

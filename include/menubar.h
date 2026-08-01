@@ -51,6 +51,12 @@ void menubar_run(void);
  */
 void menubar_quit(void);
 
+/**
+ * Show the "needs administrator privileges" dialog offering an elevated
+ * relaunch (osascript admin prompt). Can be called from any thread.
+ */
+void menubar_prompt_admin_relaunch(void);
+
 #ifdef __cplusplus
 }
 #endif

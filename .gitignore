@@ -9,6 +9,9 @@ build/
 simulator
 simulator-cli
 simulator-legacy
+
+# App bundle
+*.app/
 xbox_usb_test
 xbox_gip_test
 phase3_debug

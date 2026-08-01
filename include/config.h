@@ -43,9 +43,14 @@ int config_load_auto(const char *cli_path, ControllerMapping *mapping, char *loa
 int config_reload_if_changed(const char *path, ControllerMapping *mapping, time_t *last_modified);
 
 /**
- * Save current configuration to file
+ * Save current configuration to file (atomic: temp file + rename)
  */
 int config_save(const char *path, const ControllerMapping *mapping);
+
+/**
+ * Fill every OSC address from a prefix (e.g. "/xbox" -> "/xbox/stick/left" ...)
+ */
+void config_build_osc_addresses(OscMapping *osc, const char *prefix);
 
 /**
  * Parse key name to keycode

@@ -63,6 +63,14 @@ typedef struct {
 #pragma pack(pop)
 
 /*******************************************************************************
+ * USB Open Result Codes
+ ******************************************************************************/
+#define USB_OPEN_OK             0
+#define USB_OPEN_ERR_NOT_FOUND -1
+#define USB_OPEN_ERR_ACCESS    -2   // device present but claim denied (needs root)
+#define USB_OPEN_ERR_OTHER     -3
+
+/*******************************************************************************
  * USB Context Management
  ******************************************************************************/
 int usb_init(UsbContext *ctx);

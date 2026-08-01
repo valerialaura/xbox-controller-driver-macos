@@ -117,6 +117,55 @@ TEST(config_key_name) {
 }
 
 /*******************************************************************************
+ * Save/Load Round-Trip Tests
+ ******************************************************************************/
+TEST(config_save_load_roundtrip) {
+    const char *path = "/tmp/xbox-driver-test-config.json";
+
+    ControllerMapping original;
+    config_get_defaults(&original);
+    original.output_mode = OUTPUT_MODE_MIDI_OSC;
+    original.buttons.key_a = 0x24;                    // return
+    original.sticks.deadzone = 5000;
+    original.sticks.left_stick_mode = STICK_MODE_ARROWS;
+    original.triggers.left_trigger_mode = TRIGGER_MODE_KEY;
+    original.triggers.left_trigger_key = 0x06;        // z
+    original.midi.channel = 9;                        // channel 10 in JSON
+    original.midi.velocity = 100;
+    original.midi.invert_y = true;
+    original.midi.note_a = 60;
+    original.midi.cc_left_x = 70;
+    original.osc.port = 7500;
+    config_build_osc_addresses(&original.osc, "/pad");
+    original.features.rumble.enabled = false;
+    original.log_level = LOG_LEVEL_WARN;
+
+    ASSERT_EQ(config_save(path, &original), 0);
+
+    ControllerMapping loaded;
+    ASSERT_EQ(config_load(path, &loaded), 0);
+    remove(path);
+
+    ASSERT_EQ(loaded.output_mode, OUTPUT_MODE_MIDI_OSC);
+    ASSERT_EQ(loaded.buttons.key_a, 0x24);
+    ASSERT_EQ(loaded.sticks.deadzone, 5000);
+    ASSERT_EQ(loaded.sticks.left_stick_mode, STICK_MODE_ARROWS);
+    ASSERT_EQ(loaded.triggers.left_trigger_mode, TRIGGER_MODE_KEY);
+    ASSERT_EQ(loaded.triggers.left_trigger_key, 0x06);
+    ASSERT_EQ(loaded.midi.channel, 9);
+    ASSERT_EQ(loaded.midi.velocity, 100);
+    ASSERT_TRUE(loaded.midi.invert_y);
+    ASSERT_EQ(loaded.midi.note_a, 60);
+    ASSERT_EQ(loaded.midi.cc_left_x, 70);
+    ASSERT_EQ(loaded.osc.port, 7500);
+    ASSERT_STR_EQ(loaded.osc.addr_left_stick, "/pad/stick/left");
+    ASSERT_STR_EQ(loaded.osc.addr_dpad_right, "/pad/dpad/right");
+    ASSERT_FALSE(loaded.features.rumble.enabled);
+    ASSERT_EQ(loaded.log_level, LOG_LEVEL_WARN);
+    TEST_PASS();
+}
+
+/*******************************************************************************
  * Main
  ******************************************************************************/
 int main(void) {
@@ -138,6 +187,9 @@ int main(void) {
 
     printf("\n-- Key Name Tests --\n");
     RUN_TEST(config_key_name);
+
+    printf("\n-- Save/Load Round-Trip Tests --\n");
+    RUN_TEST(config_save_load_roundtrip);
 
     TEST_SUMMARY();
     return TEST_EXIT_CODE();

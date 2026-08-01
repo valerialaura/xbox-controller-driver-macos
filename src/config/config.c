@@ -61,7 +61,7 @@ static const KeyMapping key_mappings[] = {
 /*******************************************************************************
  * OSC Default Addresses
  ******************************************************************************/
-static void build_osc_addresses(OscMapping *osc, const char *prefix) {
+void config_build_osc_addresses(OscMapping *osc, const char *prefix) {
     snprintf(osc->addr_left_stick, OSC_ADDR_MAX, "%s/stick/left", prefix);
     snprintf(osc->addr_right_stick, OSC_ADDR_MAX, "%s/stick/right", prefix);
     snprintf(osc->addr_left_trigger, OSC_ADDR_MAX, "%s/trigger/left", prefix);
@@ -120,7 +120,7 @@ void config_get_defaults(ControllerMapping *mapping) {
     // OSC settings (used when output_mode is "osc" or "midi+osc")
     strncpy(mapping->osc.host, "127.0.0.1", OSC_HOST_MAX - 1);
     mapping->osc.port = 9000;
-    build_osc_addresses(&mapping->osc, "/xbox");
+    config_build_osc_addresses(&mapping->osc, "/xbox");
 
     // Button mappings
     mapping->buttons.key_a = 0x31;  // Space
@@ -610,7 +610,7 @@ int config_load(const char *path, ControllerMapping *mapping) {
             char prefix[OSC_PREFIX_MAX] = {0};
             parse_string(p, prefix, sizeof(prefix));
             if (prefix[0] == '/') {
-                build_osc_addresses(&mapping->osc, prefix);
+                config_build_osc_addresses(&mapping->osc, prefix);
             }
         }
 
@@ -698,6 +698,196 @@ int config_reload_if_changed(const char *path, ControllerMapping *mapping, time_
         return -1;
     }
 
+    return 0;
+}
+
+/*******************************************************************************
+ * Configuration Saving
+ ******************************************************************************/
+static const char* key_or_hex(uint16_t keycode, char *buf, size_t size) {
+    const char *name = config_key_name(keycode);
+    if (strcmp(name, "unknown") != 0) return name;
+    snprintf(buf, size, "0x%02X", keycode);
+    return buf;
+}
+
+static const char* stick_mode_str(StickMode mode) {
+    switch (mode) {
+        case STICK_MODE_WASD: return "wasd";
+        case STICK_MODE_ARROWS: return "arrows";
+        case STICK_MODE_MOUSE: return "mouse";
+        default: return "disabled";
+    }
+}
+
+static const char* trigger_str(TriggerMode mode, uint16_t key, bool is_left,
+                               char *buf, size_t size) {
+    switch (mode) {
+        case TRIGGER_MODE_MOUSE: return is_left ? "mouse_left" : "mouse_right";
+        case TRIGGER_MODE_KEY: return key_or_hex(key, buf, size);
+        default: return "disabled";
+    }
+}
+
+static const char* output_mode_str(OutputMode mode) {
+    switch (mode) {
+        case OUTPUT_MODE_MIDI: return "midi";
+        case OUTPUT_MODE_OSC: return "osc";
+        case OUTPUT_MODE_MIDI_OSC: return "midi+osc";
+        default: return "keyboard";
+    }
+}
+
+static const char* log_level_str(LogLevel level) {
+    switch (level) {
+        case LOG_LEVEL_DEBUG: return "debug";
+        case LOG_LEVEL_WARN: return "warn";
+        case LOG_LEVEL_ERROR: return "error";
+        case LOG_LEVEL_NONE: return "none";
+        default: return "info";
+    }
+}
+
+int config_save(const char *path, const ControllerMapping *m) {
+    // Write to a temp file, then rename, so hot-reload never sees a partial file
+    char tmp_path[CONFIG_PATH_MAX + 8];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+
+    FILE *f = fopen(tmp_path, "w");
+    if (!f) {
+        LOG_ERROR("Could not write config file: %s", tmp_path);
+        return -1;
+    }
+
+    char kb[8][16];
+
+    fprintf(f, "{\n");
+    fprintf(f, "  \"output_mode\": \"%s\",\n\n", output_mode_str(m->output_mode));
+
+    fprintf(f, "  \"buttons\": {\n");
+    fprintf(f, "    \"a\": \"%s\",\n", key_or_hex(m->buttons.key_a, kb[0], 16));
+    fprintf(f, "    \"b\": \"%s\",\n", key_or_hex(m->buttons.key_b, kb[0], 16));
+    fprintf(f, "    \"x\": \"%s\",\n", key_or_hex(m->buttons.key_x, kb[0], 16));
+    fprintf(f, "    \"y\": \"%s\",\n", key_or_hex(m->buttons.key_y, kb[0], 16));
+    fprintf(f, "    \"lb\": \"%s\",\n", key_or_hex(m->buttons.key_lb, kb[0], 16));
+    fprintf(f, "    \"rb\": \"%s\",\n", key_or_hex(m->buttons.key_rb, kb[0], 16));
+    fprintf(f, "    \"ls\": \"%s\",\n", key_or_hex(m->buttons.key_ls, kb[0], 16));
+    fprintf(f, "    \"rs\": \"%s\",\n", key_or_hex(m->buttons.key_rs, kb[0], 16));
+    fprintf(f, "    \"view\": \"%s\",\n", key_or_hex(m->buttons.key_view, kb[0], 16));
+    fprintf(f, "    \"menu\": \"%s\"\n", key_or_hex(m->buttons.key_menu, kb[0], 16));
+    fprintf(f, "  },\n\n");
+
+    fprintf(f, "  \"left_stick\": {\n");
+    fprintf(f, "    \"mode\": \"%s\",\n", stick_mode_str(m->sticks.left_stick_mode));
+    fprintf(f, "    \"deadzone\": %d\n", m->sticks.deadzone);
+    fprintf(f, "  },\n\n");
+
+    fprintf(f, "  \"right_stick\": {\n");
+    fprintf(f, "    \"mode\": \"%s\",\n", stick_mode_str(m->sticks.right_stick_mode));
+    fprintf(f, "    \"sensitivity\": %.2f,\n", m->sticks.mouse_sensitivity);
+    fprintf(f, "    \"curve\": %.2f,\n", m->sticks.mouse_curve);
+    fprintf(f, "    \"smoothing\": %.2f\n", m->sticks.mouse_smoothing);
+    fprintf(f, "  },\n\n");
+
+    fprintf(f, "  \"triggers\": {\n");
+    fprintf(f, "    \"left\": \"%s\",\n",
+            trigger_str(m->triggers.left_trigger_mode, m->triggers.left_trigger_key, true, kb[0], 16));
+    fprintf(f, "    \"right\": \"%s\",\n",
+            trigger_str(m->triggers.right_trigger_mode, m->triggers.right_trigger_key, false, kb[0], 16));
+    fprintf(f, "    \"threshold\": %d\n", m->triggers.threshold);
+    fprintf(f, "  },\n\n");
+
+    fprintf(f, "  \"midi\": {\n");
+    fprintf(f, "    \"device_name\": \"%s\",\n", m->midi.device_name);
+    fprintf(f, "    \"channel\": %d,\n", m->midi.channel + 1);
+    fprintf(f, "    \"velocity\": %d,\n", m->midi.velocity);
+    fprintf(f, "    \"invert_y\": %s,\n", m->midi.invert_y ? "true" : "false");
+    fprintf(f, "    \"notes\": {\n");
+    fprintf(f, "      \"a\": %d, \"b\": %d, \"x\": %d, \"y\": %d,\n",
+            m->midi.note_a, m->midi.note_b, m->midi.note_x, m->midi.note_y);
+    fprintf(f, "      \"lb\": %d, \"rb\": %d, \"view\": %d, \"menu\": %d,\n",
+            m->midi.note_lb, m->midi.note_rb, m->midi.note_view, m->midi.note_menu);
+    fprintf(f, "      \"ls\": %d, \"rs\": %d,\n", m->midi.note_ls, m->midi.note_rs);
+    fprintf(f, "      \"dpad_up\": %d, \"dpad_down\": %d, \"dpad_left\": %d, \"dpad_right\": %d\n",
+            m->midi.note_dpad_up, m->midi.note_dpad_down,
+            m->midi.note_dpad_left, m->midi.note_dpad_right);
+    fprintf(f, "    },\n");
+    fprintf(f, "    \"ccs\": {\n");
+    fprintf(f, "      \"left_stick_x\": %d, \"left_stick_y\": %d,\n",
+            m->midi.cc_left_x, m->midi.cc_left_y);
+    fprintf(f, "      \"right_stick_x\": %d, \"right_stick_y\": %d,\n",
+            m->midi.cc_right_x, m->midi.cc_right_y);
+    fprintf(f, "      \"left_trigger\": %d, \"right_trigger\": %d\n",
+            m->midi.cc_left_trigger, m->midi.cc_right_trigger);
+    fprintf(f, "    }\n");
+    fprintf(f, "  },\n\n");
+
+    fprintf(f, "  \"osc\": {\n");
+    fprintf(f, "    \"host\": \"%s\",\n", m->osc.host);
+    fprintf(f, "    \"port\": %u,\n", m->osc.port);
+    fprintf(f, "    \"addresses\": {\n");
+    fprintf(f, "      \"left_stick\": \"%s\",\n", m->osc.addr_left_stick);
+    fprintf(f, "      \"right_stick\": \"%s\",\n", m->osc.addr_right_stick);
+    fprintf(f, "      \"left_trigger\": \"%s\",\n", m->osc.addr_left_trigger);
+    fprintf(f, "      \"right_trigger\": \"%s\",\n", m->osc.addr_right_trigger);
+    fprintf(f, "      \"a\": \"%s\", \"b\": \"%s\", \"x\": \"%s\", \"y\": \"%s\",\n",
+            m->osc.addr_a, m->osc.addr_b, m->osc.addr_x, m->osc.addr_y);
+    fprintf(f, "      \"lb\": \"%s\", \"rb\": \"%s\", \"ls\": \"%s\", \"rs\": \"%s\",\n",
+            m->osc.addr_lb, m->osc.addr_rb, m->osc.addr_ls, m->osc.addr_rs);
+    fprintf(f, "      \"view\": \"%s\", \"menu\": \"%s\",\n", m->osc.addr_view, m->osc.addr_menu);
+    fprintf(f, "      \"dpad_up\": \"%s\", \"dpad_down\": \"%s\",\n",
+            m->osc.addr_dpad_up, m->osc.addr_dpad_down);
+    fprintf(f, "      \"dpad_left\": \"%s\", \"dpad_right\": \"%s\"\n",
+            m->osc.addr_dpad_left, m->osc.addr_dpad_right);
+    fprintf(f, "    }\n");
+    fprintf(f, "  },\n\n");
+
+    fprintf(f, "  \"features\": {\n");
+    fprintf(f, "    \"rumble\": {\n");
+    fprintf(f, "      \"enabled\": %s,\n", m->features.rumble.enabled ? "true" : "false");
+    fprintf(f, "      \"button_feedback\": %s\n", m->features.rumble.button_feedback ? "true" : "false");
+    fprintf(f, "    },\n");
+    fprintf(f, "    \"turbo\": {\n");
+    fprintf(f, "      \"enabled\": %s,\n", m->features.turbo.enabled ? "true" : "false");
+    fprintf(f, "      \"rate\": %d\n", m->features.turbo.rate);
+    fprintf(f, "    },\n");
+    fprintf(f, "    \"analog_keyboard\": {\n");
+    fprintf(f, "      \"enabled\": %s\n", m->features.analog_keyboard.enabled ? "true" : "false");
+    fprintf(f, "    }\n");
+    fprintf(f, "  },\n\n");
+
+    fprintf(f, "  \"advanced\": {\n");
+    fprintf(f, "    \"log_level\": \"%s\",\n", log_level_str(m->log_level));
+    fprintf(f, "    \"streaming_mode\": %s,\n", m->streaming_mode ? "true" : "false");
+    fprintf(f, "    \"console_output\": %s\n", m->console_output_enabled ? "true" : "false");
+    fprintf(f, "  }\n");
+    fprintf(f, "}\n");
+
+    fclose(f);
+
+    if (rename(tmp_path, path) != 0) {
+        LOG_ERROR("Could not move config into place: %s", path);
+        unlink(tmp_path);
+        return -1;
+    }
+
+    // When running elevated (admin relaunch), keep the file owned by the user
+    // whose directory it lives in, so unprivileged edits still work later
+    if (geteuid() == 0) {
+        char dir[CONFIG_PATH_MAX];
+        strncpy(dir, path, sizeof(dir) - 1);
+        dir[sizeof(dir) - 1] = '\0';
+        char *slash = strrchr(dir, '/');
+        if (slash && slash != dir) {
+            *slash = '\0';
+            struct stat st;
+            if (stat(dir, &st) == 0 && st.st_uid != 0) {
+                chown(path, st.st_uid, st.st_gid);
+            }
+        }
+    }
+
+    LOG_INFO("Configuration saved to: %s", path);
     return 0;
 }
 

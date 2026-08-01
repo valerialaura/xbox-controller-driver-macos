@@ -331,9 +331,10 @@ void driver_input_loop(DriverContext *ctx) {
  * Main Driver Run
  ******************************************************************************/
 int driver_run(DriverContext *ctx) {
-    // Open device
-    if (usb_open_device(&ctx->usb) != 0) {
-        return -1;
+    // Open device (returns USB_OPEN_ERR_* so the GUI can react to permissions)
+    int open_result = usb_open_device(&ctx->usb);
+    if (open_result != 0) {
+        return open_result;
     }
 
     // Initialize controller

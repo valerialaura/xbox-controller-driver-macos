@@ -24,6 +24,7 @@ SRC_DRIVER = src/core/driver.c
 SRC_MAIN_CLI = src/main.c
 SRC_MAIN_GUI = src/main_gui.c
 SRC_MENUBAR = src/gui/menubar.m
+SRC_SETTINGS = src/gui/settings.m
 
 # Object files
 OBJ_LOG = build/log.o
@@ -39,12 +40,18 @@ OBJ_DRIVER = build/driver.o
 OBJ_MAIN_CLI = build/main_cli.o
 OBJ_MAIN_GUI = build/main_gui.o
 OBJ_MENUBAR = build/menubar.o
+OBJ_SETTINGS = build/settings.o
 
 # All objects for CLI driver
 OBJS_CLI = $(OBJ_LOG) $(OBJ_CONFIG) $(OBJ_EVENT) $(OBJ_INPUT) $(OBJ_INPUT_MIDI) $(OBJ_MIDI) $(OBJ_INPUT_OSC) $(OBJ_OSC) $(OBJ_USB) $(OBJ_DRIVER) $(OBJ_MAIN_CLI)
 
 # All objects for GUI driver (default)
-OBJS_GUI = $(OBJ_LOG) $(OBJ_CONFIG) $(OBJ_EVENT) $(OBJ_INPUT) $(OBJ_INPUT_MIDI) $(OBJ_MIDI) $(OBJ_INPUT_OSC) $(OBJ_OSC) $(OBJ_USB) $(OBJ_DRIVER) $(OBJ_MAIN_GUI) $(OBJ_MENUBAR)
+OBJS_GUI = $(OBJ_LOG) $(OBJ_CONFIG) $(OBJ_EVENT) $(OBJ_INPUT) $(OBJ_INPUT_MIDI) $(OBJ_MIDI) $(OBJ_INPUT_OSC) $(OBJ_OSC) $(OBJ_USB) $(OBJ_DRIVER) $(OBJ_MAIN_GUI) $(OBJ_MENUBAR) $(OBJ_SETTINGS)
+
+# App bundle
+APP_NAME = Xbox Controller Driver
+APP_BUNDLE = $(APP_NAME).app
+APP_ID = com.valerialaura.xbox-controller-driver
 
 # Targets - GUI is the default
 all: simulator simulator-cli
@@ -91,7 +98,10 @@ $(OBJ_MAIN_GUI): $(SRC_MAIN_GUI) | build
 	$(CC) $(CFLAGS) $(LIBUSB_FLAGS) -c $< -o $@
 
 $(OBJ_MENUBAR): $(SRC_MENUBAR) | build
-	$(OBJCC) $(OBJCFLAGS) $(COCOA_FLAGS) -c $< -o $@
+	$(OBJCC) $(OBJCFLAGS) $(LIBUSB_FLAGS) $(COCOA_FLAGS) -c $< -o $@
+
+$(OBJ_SETTINGS): $(SRC_SETTINGS) | build
+	$(OBJCC) $(OBJCFLAGS) $(LIBUSB_FLAGS) $(COCOA_FLAGS) -c $< -o $@
 
 # Main simulator with GUI (default)
 simulator: $(OBJS_GUI)
@@ -105,6 +115,33 @@ simulator: $(OBJS_GUI)
 	@echo "IMPORTANT: Grant Accessibility permissions:"
 	@echo "   System Settings -> Privacy & Security -> Accessibility"
 	@echo "   Add your terminal app to the allowed list"
+
+# Double-clickable app bundle (menu-bar-only, no Dock icon, no terminal)
+app: simulator
+	@rm -rf "$(APP_BUNDLE)"
+	@mkdir -p "$(APP_BUNDLE)/Contents/MacOS"
+	@cp simulator "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)"
+	@printf '%s\n' \
+	  '<?xml version="1.0" encoding="UTF-8"?>' \
+	  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+	  '<plist version="1.0">' \
+	  '<dict>' \
+	  '  <key>CFBundleExecutable</key><string>$(APP_NAME)</string>' \
+	  '  <key>CFBundleIdentifier</key><string>$(APP_ID)</string>' \
+	  '  <key>CFBundleName</key><string>$(APP_NAME)</string>' \
+	  '  <key>CFBundlePackageType</key><string>APPL</string>' \
+	  '  <key>CFBundleShortVersionString</key><string>2.1</string>' \
+	  '  <key>CFBundleVersion</key><string>2.1</string>' \
+	  '  <key>LSMinimumSystemVersion</key><string>12.0</string>' \
+	  '  <key>LSUIElement</key><true/>' \
+	  '  <key>NSHighResolutionCapable</key><true/>' \
+	  '</dict>' \
+	  '</plist>' > "$(APP_BUNDLE)/Contents/Info.plist"
+	@codesign --force -s - "$(APP_BUNDLE)" 2>/dev/null || true
+	@echo ""
+	@echo "Built $(APP_BUNDLE)"
+	@echo "   Double-click it in Finder (or: open \"$(APP_BUNDLE)\")"
+	@echo "   It will ask for your password once to access the controller."
 
 # CLI-only simulator (no menu bar)
 simulator-cli: $(OBJS_CLI)
@@ -153,7 +190,7 @@ test-lut: tests/test_lut.c | build
 
 # Clean
 clean:
-	rm -rf build
+	rm -rf build "$(APP_BUNDLE)"
 	rm -f xbox_usb_test xbox_gip_test simulator simulator-cli simulator-legacy
 	@echo "Cleaned up build artifacts"
 
@@ -204,4 +241,4 @@ help:
 	@echo ""
 	@echo "Note: Requires accessibility permissions for keyboard/mouse input"
 
-.PHONY: all clean deps help test test-input test-config test-lut install-config
+.PHONY: all app clean deps help test test-input test-config test-lut install-config
