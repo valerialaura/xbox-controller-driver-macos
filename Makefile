@@ -6,6 +6,17 @@ OBJCC = clang
 CFLAGS = -Wall -Wextra -O2 -I./include
 OBJCFLAGS = -Wall -Wextra -O2 -I./include -fobjc-arc
 LIBUSB_FLAGS = $(shell pkg-config --cflags --libs libusb-1.0)
+
+# For distribution, link libusb statically so the app runs on Macs without
+# Homebrew. Falls back to the dynamic library if no static archive is present.
+LIBUSB_CFLAGS = $(shell pkg-config --cflags libusb-1.0)
+LIBUSB_LIBDIR = $(shell pkg-config --variable=libdir libusb-1.0)
+LIBUSB_STATIC = $(wildcard $(LIBUSB_LIBDIR)/libusb-1.0.a)
+ifeq ($(LIBUSB_STATIC),)
+  LIBUSB_LINK = $(LIBUSB_FLAGS)
+else
+  LIBUSB_LINK = $(LIBUSB_CFLAGS) $(LIBUSB_STATIC) -framework IOKit -framework Security
+endif
 FRAMEWORK_FLAGS = -framework CoreGraphics -framework ApplicationServices -framework CoreMIDI -framework CoreFoundation
 COCOA_FLAGS = -framework Cocoa
 LDFLAGS = -lm -lpthread
@@ -51,6 +62,7 @@ OBJS_GUI = $(OBJ_LOG) $(OBJ_CONFIG) $(OBJ_EVENT) $(OBJ_INPUT) $(OBJ_INPUT_MIDI) 
 # App bundle
 APP_NAME = Xbox Controller Driver
 APP_BUNDLE = $(APP_NAME).app
+APP_ZIP = XboxControllerDriver-macOS-arm64.zip
 APP_ID = com.valerialaura.xbox-controller-driver
 
 # Targets - GUI is the default
@@ -105,7 +117,7 @@ $(OBJ_SETTINGS): $(SRC_SETTINGS) | build
 
 # Main simulator with GUI (default)
 simulator: $(OBJS_GUI)
-	$(CC) $(CFLAGS) $(OBJS_GUI) $(LIBUSB_FLAGS) $(FRAMEWORK_FLAGS) $(COCOA_FLAGS) $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(OBJS_GUI) $(LIBUSB_LINK) $(FRAMEWORK_FLAGS) $(COCOA_FLAGS) $(LDFLAGS) -o $@
 	@echo ""
 	@echo "Built simulator successfully!"
 	@echo "   Run with: sudo ./simulator"
@@ -143,9 +155,17 @@ app: simulator
 	@echo "   Double-click it in Finder (or: open \"$(APP_BUNDLE)\")"
 	@echo "   It will ask for your password once to access the controller."
 
+# Zip the app bundle for release (ditto preserves the code signature)
+dist: app
+	@rm -f "$(APP_ZIP)"
+	@ditto -c -k --keepParent "$(APP_BUNDLE)" "$(APP_ZIP)"
+	@echo ""
+	@echo "Packaged $(APP_ZIP)"
+	@shasum -a 256 "$(APP_ZIP)"
+
 # CLI-only simulator (no menu bar)
 simulator-cli: $(OBJS_CLI)
-	$(CC) $(CFLAGS) $(OBJS_CLI) $(LIBUSB_FLAGS) $(FRAMEWORK_FLAGS) $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(OBJS_CLI) $(LIBUSB_LINK) $(FRAMEWORK_FLAGS) $(LDFLAGS) -o $@
 	@echo ""
 	@echo "Built simulator-cli successfully!"
 	@echo "   Run with: sudo ./simulator-cli"
@@ -190,7 +210,7 @@ test-lut: tests/test_lut.c | build
 
 # Clean
 clean:
-	rm -rf build "$(APP_BUNDLE)"
+	rm -rf build "$(APP_BUNDLE)" "$(APP_ZIP)"
 	rm -f xbox_usb_test xbox_gip_test simulator simulator-cli simulator-legacy
 	@echo "Cleaned up build artifacts"
 
@@ -241,4 +261,4 @@ help:
 	@echo ""
 	@echo "Note: Requires accessibility permissions for keyboard/mouse input"
 
-.PHONY: all app clean deps help test test-input test-config test-lut install-config
+.PHONY: all app dist clean deps help test test-input test-config test-lut install-config

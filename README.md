@@ -23,11 +23,31 @@ A userspace driver that translates Xbox One controller input to keyboard/mouse e
 
 ## Requirements
 
-- macOS (tested on Tahoe 26.1)
+- macOS on Apple Silicon (tested on macOS 26.6; Intel Macs need to build from source)
 - Xbox One controller with USB cable (Model 1697 confirmed)
-- Homebrew with libusb and pkg-config
+- An administrator password on launch — macOS holds the controller's USB interface,
+  so the driver needs privileges to claim it
+- Homebrew with libusb and pkg-config **only if building from source** (the released
+  app has libusb linked in)
 
 ## Installation
+
+### Download the app (no terminal needed)
+
+Grab the latest `XboxControllerDriver-macOS-arm64.zip` from
+[Releases](https://github.com/valerialaura/xbox-controller-driver-macos/releases),
+unzip it, and drag the app to your Applications folder.
+
+The app isn't signed with a paid Apple developer certificate, so the first launch
+takes two extra steps:
+
+1. Double-click the app. macOS says it "cannot be opened" — click **Done**.
+2. Open **System Settings → Privacy & Security**, scroll down, and click
+   **Open Anyway** next to the app's name. Confirm with **Open Anyway**.
+
+macOS remembers this, so later launches just work.
+
+### Or build it yourself
 
 ```bash
 brew install libusb pkg-config
@@ -85,6 +105,7 @@ Key names: letters (a-z), numbers (0-9), space, tab, escape, return, left_shift,
 
 ```bash
 make app             # Double-clickable menu bar app (recommended)
+make dist            # Zip the app for release
 make simulator       # Menu bar binary, run from terminal with sudo
 make simulator-cli   # CLI-only version (no menu bar)
 make test            # Run unit tests
